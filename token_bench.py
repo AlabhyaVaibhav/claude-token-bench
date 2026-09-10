@@ -12,6 +12,7 @@ Usage:
   python3 token_bench.py --provider direct
 """
 import argparse
+import sys
 import time
 
 import anthropic
@@ -63,35 +64,102 @@ def run_once(client, cfg: dict, prompt: str) -> dict:
     return {"elapsed_s": elapsed_s, "output_tokens": output_tokens, "tpm": tpm}
 
 
+DIM = "\033[2m"
+BOLD = "\033[1m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+CYAN = "\033[36m"
+RESET = "\033[0m"
+BAR_WIDTH = 24
+
+
+def _color(use_color: bool, code: str, text: str) -> str:
+    return f"{code}{text}{RESET}" if use_color else text
+
+
+def render_table(rows: list[dict], use_color: bool) -> str:
+    """rows: dicts with name, model, tokens, secs, tpm (tpm=None means failed)."""
+    ok_rows = [r for r in rows if r["tpm"] is not None]
+    max_tpm = max((r["tpm"] for r in ok_rows), default=1)
+
+    headers = ["config", "model", "tokens", "secs", "tok/min", ""]
+    widths = [18, 16, 8, 8, 10, BAR_WIDTH]
+    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
+
+    lines = [sep]
+    header_cells = [h.ljust(w) if h == "config" or h == "model" else h.rjust(w) for h, w in zip(headers, widths)]
+    lines.append("| " + " | ".join(_color(use_color, BOLD, c) for c in header_cells) + " |")
+    lines.append(sep)
+
+    for r in sorted(rows, key=lambda r: (r["tpm"] is None, -(r["tpm"] or 0))):
+        if r["tpm"] is None:
+            cells = [
+                r["name"].ljust(widths[0]),
+                r["model"].ljust(widths[1]),
+                "-".rjust(widths[2]),
+                "-".rjust(widths[3]),
+                _color(use_color, RED, "FAILED".rjust(widths[4])),
+                _color(use_color, DIM, str(r["error"])[:BAR_WIDTH].ljust(widths[5])),
+            ]
+        else:
+            frac = r["tpm"] / max_tpm if max_tpm else 0
+            bar_len = max(1, round(frac * BAR_WIDTH))
+            bar = "#" * bar_len
+            bar_color = GREEN if frac > 0.85 else (YELLOW if frac > 0.5 else RED)
+            cells = [
+                _color(use_color, CYAN, r["name"].ljust(widths[0])),
+                r["model"].ljust(widths[1]),
+                f"{r['tokens']:.0f}".rjust(widths[2]),
+                f"{r['secs']:.1f}".rjust(widths[3]),
+                _color(use_color, BOLD, f"{r['tpm']:.0f}".rjust(widths[4])),
+                _color(use_color, bar_color, bar.ljust(widths[5])),
+            ]
+        lines.append("| " + " | ".join(cells) + " |")
+
+    lines.append(sep)
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt", default=PROMPT_DEFAULT)
     parser.add_argument("--runs", type=int, default=1, help="repeats per config, averaged")
     parser.add_argument("--provider", choices=["foundry", "direct"], default="foundry")
     parser.add_argument("--resource", default=None, help="Foundry resource name (foundry provider only)")
+    parser.add_argument("--no-color", action="store_true", help="disable ANSI colors in output")
     args = parser.parse_args()
 
+    use_color = not args.no_color and sys.stdout.isatty()
     client = build_client(args.provider, args.resource)
 
-    print(f"{'config':<18} {'model':<16} {'tokens':>8} {'secs':>8} {'tok/min':>10}")
+    rows = []
     for cfg in CONFIGS:
+        print(_color(use_color, DIM, f"running {cfg['name']}..."), file=sys.stderr)
         results = []
+        error = None
         for _ in range(args.runs):
             try:
                 results.append(run_once(client, cfg, args.prompt))
             except anthropic.APIStatusError as e:
-                print(f"{cfg['name']:<18} FAILED: {e.status_code} {e.message}")
+                error = f"{e.status_code} {e.message}"
                 results = []
                 break
         if not results:
+            rows.append({"name": cfg["name"], "model": cfg["model"], "tpm": None, "error": error})
             continue
-        avg_tokens = sum(r["output_tokens"] for r in results) / len(results)
-        avg_secs = sum(r["elapsed_s"] for r in results) / len(results)
-        avg_tpm = sum(r["tpm"] for r in results) / len(results)
-        print(
-            f"{cfg['name']:<18} {cfg['model']:<16} {avg_tokens:>8.0f} "
-            f"{avg_secs:>8.1f} {avg_tpm:>10.0f}"
+        rows.append(
+            {
+                "name": cfg["name"],
+                "model": cfg["model"],
+                "tokens": sum(r["output_tokens"] for r in results) / len(results),
+                "secs": sum(r["elapsed_s"] for r in results) / len(results),
+                "tpm": sum(r["tpm"] for r in results) / len(results),
+            }
         )
+
+    print()
+    print(render_table(rows, use_color))
 
 
 if __name__ == "__main__":
