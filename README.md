@@ -1,18 +1,18 @@
 # claude-token-bench
 
-Measure Claude output tokens/minute across model + effort configurations, with
-a colorized, ranked terminal table.
+Measure Claude output tokens/minute (and tokens/second) across model + effort
+configurations, with a colorized, ranked terminal table.
 
 ```
-+--------------------+------------------+----------+----------+------------+--------------------------+
-| config             | model            |   tokens |     secs |    tok/min |                          |
-+--------------------+------------------+----------+----------+------------+--------------------------+
-| sonnet5-high       | claude-sonnet-5  |     1326 |     13.8 |       5753 | ######################## |
-| sonnet5-low        | claude-sonnet-5  |     1272 |     14.3 |       5323 | ######################   |
-| opus5-xhigh        | claude-opus-5    |     1833 |     22.2 |       4953 | #####################    |
-| haiku4.5           | claude-haiku-4-5 |      774 |      9.8 |       4747 | ####################     |
-| opus5-high         | claude-opus-5    |     1764 |     23.4 |       4532 | ###################      |
-+--------------------+------------------+----------+----------+------------+--------------------------+
++--------------------+------------------+----------+----------+------------+-----------+--------------------------+
+| config             | model            |   tokens |     secs |    tok/min |   tok/sec |                          |
++--------------------+------------------+----------+----------+------------+-----------+--------------------------+
+| sonnet5-high       | claude-sonnet-5  |     1290 |     14.4 |       5380 |      89.7 | ######################## |
+| haiku4.5           | claude-haiku-4-5 |      766 |      9.3 |       4927 |      82.1 | ######################   |
+| opus5-xhigh        | claude-opus-5    |     1906 |     24.5 |       4665 |      77.7 | #####################    |
+| sonnet5-low        | claude-sonnet-5  |     1295 |     17.1 |       4551 |      75.9 | ####################     |
+| opus5-high         | claude-opus-5    |     1751 |     24.4 |       4308 |      71.8 | ###################      |
++--------------------+------------------+----------+----------+------------+-----------+--------------------------+
 ```
 
 Rows are ranked by tok/min descending; the bar column is a relative visual
@@ -26,7 +26,8 @@ a fixed prompt, times the full request (`client.messages.stream(...)` open to
 `get_final_message()`), and computes:
 
 ```
-tok/min = response.usage.output_tokens / (elapsed_seconds / 60)
+tok/sec = response.usage.output_tokens / elapsed_seconds
+tok/min = tok/sec * 60
 ```
 
 This is end-to-end throughput (network + generation), not raw decode speed —

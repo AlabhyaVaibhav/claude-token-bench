@@ -60,8 +60,9 @@ def run_once(client, cfg: dict, prompt: str) -> dict:
     elapsed_s = time.perf_counter() - start
 
     output_tokens = message.usage.output_tokens
-    tpm = output_tokens / (elapsed_s / 60)
-    return {"elapsed_s": elapsed_s, "output_tokens": output_tokens, "tpm": tpm}
+    tps = output_tokens / elapsed_s
+    tpm = tps * 60
+    return {"elapsed_s": elapsed_s, "output_tokens": output_tokens, "tpm": tpm, "tps": tps}
 
 
 DIM = "\033[2m"
@@ -83,8 +84,8 @@ def render_table(rows: list[dict], use_color: bool) -> str:
     ok_rows = [r for r in rows if r["tpm"] is not None]
     max_tpm = max((r["tpm"] for r in ok_rows), default=1)
 
-    headers = ["config", "model", "tokens", "secs", "tok/min", ""]
-    widths = [18, 16, 8, 8, 10, BAR_WIDTH]
+    headers = ["config", "model", "tokens", "secs", "tok/min", "tok/sec", ""]
+    widths = [18, 16, 8, 8, 10, 9, BAR_WIDTH]
     sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
 
     lines = [sep]
@@ -100,7 +101,8 @@ def render_table(rows: list[dict], use_color: bool) -> str:
                 "-".rjust(widths[2]),
                 "-".rjust(widths[3]),
                 _color(use_color, RED, "FAILED".rjust(widths[4])),
-                _color(use_color, DIM, str(r["error"])[:BAR_WIDTH].ljust(widths[5])),
+                "-".rjust(widths[5]),
+                _color(use_color, DIM, str(r["error"])[:BAR_WIDTH].ljust(widths[6])),
             ]
         else:
             frac = r["tpm"] / max_tpm if max_tpm else 0
@@ -113,7 +115,8 @@ def render_table(rows: list[dict], use_color: bool) -> str:
                 f"{r['tokens']:.0f}".rjust(widths[2]),
                 f"{r['secs']:.1f}".rjust(widths[3]),
                 _color(use_color, BOLD, f"{r['tpm']:.0f}".rjust(widths[4])),
-                _color(use_color, bar_color, bar.ljust(widths[5])),
+                f"{r['tps']:.1f}".rjust(widths[5]),
+                _color(use_color, bar_color, bar.ljust(widths[6])),
             ]
         lines.append("| " + " | ".join(cells) + " |")
 
@@ -155,6 +158,7 @@ def main():
                 "tokens": sum(r["output_tokens"] for r in results) / len(results),
                 "secs": sum(r["elapsed_s"] for r in results) / len(results),
                 "tpm": sum(r["tpm"] for r in results) / len(results),
+                "tps": sum(r["tps"] for r in results) / len(results),
             }
         )
 
